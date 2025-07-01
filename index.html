@@ -328,14 +328,10 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
 
     <script type="module">
-        // Import the functions you need from the SDKs you need
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-app.js";
-        // Import Firestore functions
-        import { 
-            getFirestore, collection, getDocs, query, orderBy, limit 
-        } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-firestore.js";
+        import { getFirestore, collection, getDocs, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-firestore.js";
 
-        // Your web app's Firebase configuration - PASTE YOURS HERE
+        // Your web app's Firebase configuration
         const firebaseConfig = {
           apiKey: "AIzaSyBs4oRWbDvxvmxi-ZS4kBJbgiWh9Lpl-lk",
           authDomain: "ommerce-ac13a.firebaseapp.com",
@@ -345,54 +341,69 @@
           appId: "1:1068414137141:web:ee01f3a9d91f556b5b927c"
         };
 
-        // Initialize Firebase
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
         const resultsCollection = collection(db, 'teer_results');
 
-        // --- All application logic is now inside this module script ---
         document.addEventListener('DOMContentLoaded', () => {
 
-            // --- ELEMENTS ---
             const dateElement = document.getElementById('current-date');
             const frResultElement = document.getElementById('fr-result');
             const srResultElement = document.getElementById('sr-result');
             const previousResultsBody = document.getElementById('previous-results-body');
             
-            // --- FUNCTION TO FETCH AND DISPLAY RESULTS FROM FIRESTORE ---
+            // --- MODIFIED FUNCTION TO FETCH AND DISPLAY RESULTS ---
             const fetchAndDisplayResults = async () => {
-                // Create a query to get the last 8 results (today + 7 previous)
+                // Set the main card date to today, regardless of result availability
+                const today = new Date();
+                const dateOptions = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+                dateElement.textContent = today.toLocaleDateString('en-US', dateOptions);
+
+                // Format today's date as YYYY-MM-DD for Firestore comparison
+                const todayString = today.toISOString().split('T')[0];
+
+                // Create a query to get the last 8 results (to find today's and previous ones)
                 const q = query(resultsCollection, orderBy('date', 'desc'), limit(8));
                 
                 try {
                     const querySnapshot = await getDocs(q);
                     
                     if (querySnapshot.empty) {
-                        dateElement.textContent = 'No results found yet.';
-                        previousResultsBody.innerHTML = '<tr><td colspan="3">No previous results available.</td></tr>';
+                        frResultElement.textContent = '--';
+                        srResultElement.textContent = '--';
+                        previousResultsBody.innerHTML = '<tr><td colspan="3">No results available.</td></tr>';
                         return;
                     }
 
                     const results = querySnapshot.docs.map(doc => doc.data());
-
-                    // 1. Populate "Today's Result" (the most recent one)
                     const latestResult = results[0];
-                    const resultDate = new Date(latestResult.date + 'T00:00:00'); // Ensure correct date parsing
-                    const dateOptions = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
-                    dateElement.textContent = resultDate.toLocaleDateString('en-US', dateOptions);
-                    frResultElement.textContent = latestResult.fr || '--';
-                    srResultElement.textContent = latestResult.sr || '--';
+                    let previousResultsData;
 
-                    // 2. Populate "Previous Results" (the next 7)
-                    const previousResults = results.slice(1);
+                    // Check if the most recent result is from today
+                    if (latestResult && latestResult.date === todayString) {
+                        // Today's result is available
+                        frResultElement.textContent = latestResult.fr || '--';
+                        srResultElement.textContent = latestResult.sr || '--';
+                        // The rest are previous results
+                        previousResultsData = results.slice(1);
+                    } else {
+                        // Today's result is NOT available yet, show placeholders
+                        frResultElement.textContent = '--';
+                        srResultElement.textContent = '--';
+                        // All fetched results are from previous days
+                        previousResultsData = results;
+                    }
+
+                    // Populate "Previous Results" table
                     previousResultsBody.innerHTML = ''; // Clear loading message
 
-                    if (previousResults.length === 0) {
+                    if (previousResultsData.length === 0) {
                         previousResultsBody.innerHTML = '<tr><td colspan="3">No previous results available.</td></tr>';
                     } else {
-                        previousResults.forEach(result => {
+                        previousResultsData.forEach(result => {
                             const row = document.createElement('tr');
-                            const prevDate = new Date(result.date + 'T00:00:00'); // Ensure correct date parsing
+                            // Add 'T00:00:00' to prevent timezone issues when parsing date
+                            const prevDate = new Date(result.date + 'T00:00:00');
                             const formattedDate = prevDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
                             
                             row.innerHTML = `
@@ -407,27 +418,38 @@
                 } catch (error) {
                     console.error("Error fetching results: ", error);
                     dateElement.textContent = 'Could not load results.';
+                    frResultElement.textContent = 'Err';
+                    srResultElement.textContent = 'Err';
                     previousResultsBody.innerHTML = '<tr><td colspan="3">Error loading data.</td></tr>';
                 }
             };
             
-            // --- OTHER DYNAMIC ELEMENTS ---
             const startCountdownTimer = () => {
                 const countdownTimerEl = document.getElementById('countdown-timer');
                 setInterval(() => {
                     const now = new Date();
-                    // Result times for Shillong Teer are typically around 4:00 PM (F/R) and 5:00 PM (S/R) IST
+                    // Result times for Shillong Teer are typically around 4:00 PM (16:00) and 5:00 PM (17:00) IST
                     const firstRoundTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 16, 0, 0); 
                     const secondRoundTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 17, 0, 0); 
 
                     let nextResultTime;
+                    if (now.getDay() === 0) { // Check if it's Sunday
+                        countdownTimerEl.innerHTML = "Results are not declared on Sunday.";
+                        return;
+                    }
+                    
                     if (now < firstRoundTime) {
                         nextResultTime = firstRoundTime;
                     } else if (now < secondRoundTime) {
                         nextResultTime = secondRoundTime;
                     } else {
-                        // Next day's first round
-                        nextResultTime = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 16, 0, 0);
+                        // Next day's first round, skipping Sunday
+                        let nextDay = new Date(now);
+                        nextDay.setDate(now.getDate() + 1);
+                        if (nextDay.getDay() === 0) { // If next day is Sunday
+                            nextDay.setDate(nextDay.getDate() + 1); // Skip to Monday
+                        }
+                        nextResultTime = new Date(nextDay.getFullYear(), nextDay.getMonth(), nextDay.getDate(), 16, 0, 0);
                     }
 
                     const diff = nextResultTime - now;
